@@ -56,7 +56,7 @@ func loadConfig(filePath string) (Config, error) {
 		if err := os.WriteFile(filePath, configData, 0644); err != nil {
 			return config, fmt.Errorf("failed to write default config file: %v", err)
 		}
-		fmt.Printf("Created default configuration file at: %s\n", filePath)
+		fmt.Printf("[%s] Created default configuration file at: %s\n", time.Now().Format("15:04:05"), filePath)
 		return config, nil
 	}
 
@@ -69,7 +69,7 @@ func loadConfig(filePath string) (Config, error) {
 		return config, fmt.Errorf("failed to parse config file: %v", err)
 	}
 
-	fmt.Printf("Loaded configuration from: %s\n", filePath)
+	fmt.Printf("[%s] Loaded configuration from: %s\n", time.Now().Format("15:04:05"), filePath)
 	return config, nil
 }
 
@@ -78,8 +78,8 @@ func main() {
 
 	config, err := loadConfig(*configFile)
 	if err != nil {
-		fmt.Printf("Warning: %v\n", err)
-		fmt.Println("Using default configuration")
+		fmt.Printf("[%s] Warning: %v\n", time.Now().Format("15:04:05"), err)
+		fmt.Printf("[%s] Using default configuration\n", time.Now().Format("15:04:05"))
 	}
 
 	if *threshold >= 0 {
@@ -93,9 +93,9 @@ func main() {
 	}
 	config.Verbose = *verbose
 
-	fmt.Println("Starting EarGuard...")
-	fmt.Printf("Settings: Threshold: %.2f, Volume division: 1/%.0f, Restore delay: %ds, Verbose: %v\n",
-		config.Threshold, config.DivisionFactor, config.RestoreDelay, config.Verbose)
+	fmt.Printf("[%s] Starting EarGuard...\n", time.Now().Format("15:04:05"))
+	fmt.Printf("[%s] Settings: Threshold: %.2f, Volume division: 1/%.0f, Restore delay: %ds, Verbose: %v\n",
+		time.Now().Format("15:04:05"), config.Threshold, config.DivisionFactor, config.RestoreDelay, config.Verbose)
 
 	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED); err != nil {
 		log.Fatalf("Failed to initialize COM: %v", err)
@@ -146,7 +146,7 @@ func main() {
 	}
 	defer audioEndpointVolume.Release()
 
-	fmt.Println("Audio monitoring active - Press Ctrl+C to exit")
+	fmt.Printf("[%s] Audio monitoring active - Press Ctrl+C to exit\n", time.Now().Format("15:04:05"))
 
 	var isReducedVolume bool = false
 	var originalVolume float32
@@ -157,9 +157,9 @@ func main() {
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-signalChan
-		fmt.Println("Shutting down...")
+		fmt.Printf("[%s] Shutting down...\n", time.Now().Format("15:04:05"))
 		if isReducedVolume {
-			fmt.Println("Restoring volume...")
+			fmt.Printf("[%s] Restoring volume...\n", time.Now().Format("15:04:05"))
 			audioEndpointVolume.SetMasterVolumeLevelScalar(originalVolume, nil)
 		}
 		os.Exit(0)
@@ -179,8 +179,8 @@ func main() {
 		}
 
 		if config.Verbose && time.Since(lastPrintTime) > 2*time.Second {
-			fmt.Printf("Current peak: %.2f, Volume: %.0f%%, Reduced: %v\n",
-				peakValue, currentVolume*100, isReducedVolume)
+			fmt.Printf("[%s] Current peak: %.2f, Volume: %.0f%%, Reduced: %v\n",
+				time.Now().Format("15:04:05"), peakValue, currentVolume*100, isReducedVolume)
 			lastPrintTime = time.Now()
 		}
 
@@ -188,25 +188,25 @@ func main() {
 			originalVolume = currentVolume
 			newVolume := originalVolume / float32(config.DivisionFactor)
 			if err := audioEndpointVolume.SetMasterVolumeLevelScalar(newVolume, nil); err != nil {
-				fmt.Printf("Error setting volume: %v\n", err)
+				fmt.Printf("[%s] Error setting volume: %v\n", time.Now().Format("15:04:05"), err)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 			isReducedVolume = true
 			lastLoudTimestamp = time.Now()
-			fmt.Printf("LOUD AUDIO DETECTED (%.2f)! Reducing volume from %.0f%% to %.0f%%\n",
-				peakValue, originalVolume*100, newVolume*100)
+			fmt.Printf("[%s] LOUD AUDIO DETECTED (%.2f)! Reducing volume from %.0f%% to %.0f%%\n",
+				time.Now().Format("15:04:05"), peakValue, originalVolume*100, newVolume*100)
 		} else if peakValue > float32(config.Threshold) && isReducedVolume {
 			lastLoudTimestamp = time.Now()
 		} else if isReducedVolume && time.Since(lastLoudTimestamp) > time.Duration(config.RestoreDelay)*time.Second {
 			if err := audioEndpointVolume.SetMasterVolumeLevelScalar(originalVolume, nil); err != nil {
-				fmt.Printf("Error restoring volume: %v\n", err)
+				fmt.Printf("[%s] Error restoring volume: %v\n", time.Now().Format("15:04:05"), err)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 			isReducedVolume = false
-			fmt.Printf("Audio normal for %ds. Restoring volume to %.0f%%\n",
-				config.RestoreDelay, originalVolume*100)
+			fmt.Printf("[%s] Audio normal for %ds. Restoring volume to %.0f%%\n",
+				time.Now().Format("15:04:05"), config.RestoreDelay, originalVolume*100)
 		}
 
 		time.Sleep(50 * time.Millisecond)
