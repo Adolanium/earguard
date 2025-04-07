@@ -20,6 +20,7 @@ type Config struct {
 	DivisionFactor float64 `json:"division_factor"`
 	RestoreDelay   int     `json:"restore_delay"`
 	Verbose        bool    `json:"verbose"`
+	SampleWindow   int     `json:"sample_window"`
 }
 
 var defaultConfig = Config{
@@ -27,6 +28,7 @@ var defaultConfig = Config{
 	DivisionFactor: 4.0,
 	RestoreDelay:   3,
 	Verbose:        false,
+	SampleWindow:   5,
 }
 
 var (
@@ -94,8 +96,8 @@ func main() {
 	config.Verbose = *verbose
 
 	fmt.Printf("[%s] Starting EarGuard...\n", time.Now().Format("15:04:05"))
-	fmt.Printf("[%s] Settings: Threshold: %.2f, Volume division: 1/%.0f, Restore delay: %ds, Verbose: %v\n",
-		time.Now().Format("15:04:05"), config.Threshold, config.DivisionFactor, config.RestoreDelay, config.Verbose)
+	fmt.Printf("[%s] Settings: Threshold: %.2f, Volume division: 1/%.0f, Restore delay: %ds, Sample window: %d, Verbose: %v\n",
+		time.Now().Format("15:04:05"), config.Threshold, config.DivisionFactor, config.RestoreDelay, config.SampleWindow, config.Verbose)
 
 	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED); err != nil {
 		log.Fatalf("Failed to initialize COM: %v", err)
@@ -153,6 +155,9 @@ func main() {
 	var lastLoudTimestamp time.Time
 	var lastPrintTime time.Time = time.Now()
 
+	peakBuffer := make([]float32, config.SampleWindow)
+	bufferIndex := 0
+
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -172,6 +177,15 @@ func main() {
 			continue
 		}
 
+		peakBuffer[bufferIndex] = peakValue
+		bufferIndex = (bufferIndex + 1) % config.SampleWindow
+
+		var sumPeaks float32
+		for _, p := range peakBuffer {
+			sumPeaks += p
+		}
+		averagePeak := sumPeaks / float32(config.SampleWindow)
+
 		var currentVolume float32
 		if err := audioEndpointVolume.GetMasterVolumeLevelScalar(&currentVolume); err != nil {
 			time.Sleep(100 * time.Millisecond)
@@ -179,12 +193,12 @@ func main() {
 		}
 
 		if config.Verbose && time.Since(lastPrintTime) > 2*time.Second {
-			fmt.Printf("[%s] Current peak: %.2f, Volume: %.0f%%, Reduced: %v\n",
-				time.Now().Format("15:04:05"), peakValue, currentVolume*100, isReducedVolume)
+			fmt.Printf("[%s] Current peak: %.2f, Avg peak: %.2f, Volume: %.0f%%, Reduced: %v\n",
+				time.Now().Format("15:04:05"), peakValue, averagePeak, currentVolume*100, isReducedVolume)
 			lastPrintTime = time.Now()
 		}
 
-		if peakValue > float32(config.Threshold) && !isReducedVolume {
+		if averagePeak > float32(config.Threshold) && !isReducedVolume {
 			originalVolume = currentVolume
 			newVolume := originalVolume / float32(config.DivisionFactor)
 			if err := audioEndpointVolume.SetMasterVolumeLevelScalar(newVolume, nil); err != nil {
@@ -194,9 +208,9 @@ func main() {
 			}
 			isReducedVolume = true
 			lastLoudTimestamp = time.Now()
-			fmt.Printf("[%s] LOUD AUDIO DETECTED (%.2f)! Reducing volume from %.0f%% to %.0f%%\n",
-				time.Now().Format("15:04:05"), peakValue, originalVolume*100, newVolume*100)
-		} else if peakValue > float32(config.Threshold) && isReducedVolume {
+			fmt.Printf("[%s] LOUD AUDIO DETECTED (avg: %.2f)! Reducing volume from %.0f%% to %.0f%%\n",
+				time.Now().Format("15:04:05"), averagePeak, originalVolume*100, newVolume*100)
+		} else if averagePeak > float32(config.Threshold) && isReducedVolume {
 			lastLoudTimestamp = time.Now()
 		} else if isReducedVolume && time.Since(lastLoudTimestamp) > time.Duration(config.RestoreDelay)*time.Second {
 			if err := audioEndpointVolume.SetMasterVolumeLevelScalar(originalVolume, nil); err != nil {
