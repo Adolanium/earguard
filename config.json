@@ -2,5 +2,6 @@
   "threshold": 0.4,
   "division_factor": 4,
   "restore_delay": 3,
-  "verbose": false
+  "verbose": false,
+  "sample_window": 5
 }
